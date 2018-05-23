@@ -1,0 +1,528 @@
+// M&M Sorter
+// Sort M&M's using two servos and color scanner
+
+#include <Wire.h>
+#include "Adafruit_TCS34725.h"
+#include <Servo.h> 
+
+
+/* Initialise with default values (int time = 2.4ms, gain = 1x) */
+// Adafruit_TCS34725 tcs = Adafruit_TCS34725();
+
+/* Initialise with specific int time and gain values */
+Adafruit_TCS34725 tcs = Adafruit_TCS34725(TCS34725_INTEGRATIONTIME_50MS, TCS34725_GAIN_4X);
+
+
+//Declare two subroutines 
+void calibrateColorScanner();
+void SortMM();
+
+//Assign names to the two servos
+Servo topservo; 
+Servo bottomservo;
+
+//Public variables that will be used by all subroutines
+int topservoPin = 9;
+int bottomservoPin=8;
+String a; 
+char buf[25];
+unsigned int bucket;
+unsigned int currentBucket;
+int bucket_count = 0;   
+int stopSort = 1;
+
+int totalRed=0;
+int totalGreen=0;
+int totalBlue=0;
+int totalOrange=0;
+int totalYellow=0;
+int totalBrown=0;
+int totalError=0;
+
+//Preloaded color values.  These values can be changed by using the calibration routine
+
+int redmm_redLow = 752;
+int redmm_redHigh = 952;
+int redmm_greenLow = 879;
+int redmm_greenHigh = 1079;
+int redmm_blueLow = 806;
+int redmm_blueHigh = 1006;
+  
+int bluemm_redLow = 752;
+int bluemm_redHigh = 952;
+int bluemm_greenLow = 1014;
+int bluemm_greenHigh = 1214;
+int bluemm_blueLow = 1053;
+int bluemm_blueHigh = 1253;
+  
+int greenmm_redLow = 885;
+int greenmm_redHigh = 1085;
+int greenmm_greenLow = 1129;
+int greenmm_greenHigh = 1329;
+int greenmm_blueLow = 884;
+int greenmm_blueHigh = 1084;
+
+int yellowmm_redLow = 1694;
+int yellowmm_redHigh = 1894;
+int yellowmm_greenLow = 1451;
+int yellowmm_greenHigh = 1651;
+int yellowmm_blueLow = 992;
+int yellowmm_blueHigh = 1192;
+  
+int orangemm_redLow = 1386;
+int orangemm_redHigh = 1586;
+int orangemm_greenLow = 986;
+int orangemm_greenHigh = 1186;
+int orangemm_blueLow= 882;
+int orangemm_blueHigh = 1082;
+  
+int brownmm_redLow = 817;
+int brownmm_redHigh = 1017;
+int brownmm_greenLow = 894;
+int brownmm_greenHigh = 1094;
+int brownmm_blueLow = 799;
+int brownmm_blueHigh = 999;
+
+int clearmm_redLow = 1525;
+int clearmm_redHigh = 1725;
+int clearmm_greenLow = 1617;
+int clearmm_greenHigh = 1817;
+int clearmm_blueLow = 1451;
+int clearmm_blueHigh = 1651;
+
+void setup() 
+{ 
+  
+  topservo.attach(topservoPin);
+  bottomservo.attach(bottomservoPin);
+  Serial.begin(9600); // opens serial port, sets data rate to 9600 bps
+  if (tcs.begin()) {
+    Serial.println("Found sensor");
+  } else {
+    Serial.println("No TCS34725 found ... check your connections");
+    while (1); // halt!
+  }
+
+} 
+ 
+ 
+void loop()
+{
+//open new menu to select calibration start and read color count 
+  Serial.println("M&M Sorter Main Menu");
+  Serial.println("Select:");
+  Serial.println("1) Calibration Menu");
+  Serial.println("2) Start Sorting");
+  Serial.println("3) Display Totals");
+  Serial.println("4) Clear Totals");
+  
+  
+ 
+  while (Serial.available()==0) {}  // wait for any kind of input
+   a= Serial.readString();// read the incoming data as string
+  if (a.toInt() == 1)
+  {
+    calibrateColorScanner();
+  }
+  
+  else if (a.toInt()==2)
+  {
+    // Start Slide at middle position (orange)
+    bottomservo.write(80);
+    delay(750);
+    currentBucket=4;
+    stopSort = 1;
+    SortMM();
+  }
+  
+  else if (a.toInt()==3)
+  {
+    //total readyout of all colors counted by the machine
+    Serial.print("Total Red = "); 
+    Serial.print(totalRed);
+    Serial.print(" Total Green = ");
+    Serial.print(totalGreen);
+    Serial.print(" Total Blue = ");
+    Serial.print(totalBlue);
+    Serial.print(" Total Orange = ");
+    Serial.println(totalOrange);
+
+    Serial.print("Total Yellow = ");
+    Serial.print(totalYellow);
+    Serial.print(" Total Brown = ");
+    Serial.print(totalBrown);
+    Serial.print(" Total Error = ");
+    Serial.print(totalError);
+   
+  }
+  else if (a.toInt()==4)
+  {
+    Serial.println("All values now set to zero");
+    totalRed=0;
+    totalGreen=0;
+    totalBlue=0;
+    totalOrange=0;
+    totalYellow=0;
+    totalBrown=0;
+    totalError=0;
+  }
+  
+ } 
+
+void SortMM()
+{
+    uint16_t clear, red, green, blue, bucketDifference, delayTime;
+
+  // Loop in this routine until a key is pressed or an empty (clear) M&M is scanned
+  while (Serial.available()==0 and stopSort==1) {
+  
+  
+   // Move top servo to pickup position
+    topservo.write(127);
+    delay(750);
+    // Move top servo to scan position
+    topservo.write(65);
+    delay(750);
+    // color scan logic 
+    tcs.setInterrupt(false);      // turn on color sensor LED
+    tcs.getRawData(&red, &green, &blue, &clear);
+    Serial.print("Red: "); Serial.print(red, DEC); Serial.print(" ");
+    Serial.print("Green: "); Serial.print(green, DEC); Serial.print(" ");
+    Serial.print("Blue: "); Serial.print(blue, DEC); Serial.print(" ");
+    Serial.print("Clear: "); Serial.print(clear, DEC); Serial.print(" ");
+    Serial.println(" ");
+    //tcs.setInterrupt(true);  // turn off LED
+    delay(500);
+        
+    // Test scanned color against red/green/blue lowest and highest range for each color .  If color found then set bucket variable and move the bottom servo to the correct bucket   
+    if (red > redmm_redLow and red < redmm_redHigh and green > redmm_greenLow and green < redmm_greenHigh and blue > redmm_blueLow and blue < redmm_blueHigh)
+      {
+      Serial.println("Found Red");
+      bucket=1;
+      totalRed++;
+      bottomservo.write(10);
+      }
+
+    else
+    if (red > greenmm_redLow and red < greenmm_redHigh and green > greenmm_greenLow and green < greenmm_greenHigh and blue > greenmm_blueLow and blue < greenmm_blueHigh)
+    {
+      Serial.println("Found Green");
+      bucket=2;
+      totalGreen++;
+      bottomservo.write(35);
+    }
+    else
+    if (red > bluemm_redLow and red < bluemm_redHigh and green > bluemm_greenLow and green < bluemm_greenHigh  and blue > bluemm_blueLow and blue < bluemm_blueHigh)
+    {
+      Serial.println("Found Blue");
+      bucket=3;
+      totalBlue++;
+      bottomservo.write(60);
+    }
+    else
+    if (red > orangemm_redLow and red < orangemm_redHigh and green > orangemm_greenLow and green < orangemm_greenHigh and blue > orangemm_blueLow and blue < orangemm_blueHigh)
+    {
+      Serial.println("Found Orange");
+      bucket=4;
+      totalOrange++;
+      bottomservo.write(80);
+    }
+    else
+    if (red > yellowmm_redLow and red < yellowmm_redHigh and green > yellowmm_greenLow and green < yellowmm_greenHigh and blue > yellowmm_blueLow and blue < yellowmm_blueHigh)
+    {
+      Serial.println("Found Yellow");
+      bucket=5;
+      totalYellow++;
+      bottomservo.write(105);
+    }
+    else
+    if (red > brownmm_redLow and red < brownmm_redHigh and green > brownmm_greenLow and green < brownmm_greenHigh and blue > brownmm_blueLow and blue < brownmm_blueHigh)
+    {
+      Serial.println("Found Brown");
+      bucket=6;
+      totalBrown++;
+      bottomservo.write(128);
+    }
+    else
+    if (red > clearmm_redLow and red < clearmm_redHigh and green > clearmm_greenLow and green < clearmm_greenHigh and blue > clearmm_blueLow and blue < clearmm_blueHigh)
+    {
+      Serial.println("****M&M Not Found****");
+      bucket=4;
+      //totalError++;
+      bottomservo.write(80);
+      stopSort=0;
+    }
+    else
+    {
+      Serial.println("Error - Color Unknwon");
+      bucket=7;
+      totalError++;
+      bottomservo.write(150);
+    }
+   
+  //  It should take the server 110 micro seconds to go from one bucked to the next closest bucket
+  //  Calculate the difference between the current bucket and the desired bucket and then multiply that value by 110 micro seconds for the delay
+  
+    if (bucket > currentBucket)
+      bucketDifference = bucket - currentBucket;
+    else
+      bucketDifference = currentBucket-bucket;
+    delayTime=bucketDifference*110;  
+    
+    delay(delayTime);
+
+
+    topservo.write(10);
+    delay(750);
+
+    }
+}
+
+
+void calibrateColorScanner()
+{
+  uint16_t clear, red, green, blue;
+ 
+  
+    Serial.println("Calibration Menu");
+    Serial.println("Select:");
+    Serial.println("1) Calibrate Red");
+    Serial.println("2) Calibrate Green");
+    Serial.println("3) Calibrate Blue");
+    Serial.println("4) Calibrate Orange");
+    Serial.println("5) Calibrate Yellow");
+    Serial.println("6) Calibrate Brown");
+    Serial.println("7) Exit to Main Menu");
+  a= Serial.readString();// read the incoming data as string
+  while (Serial.available()==0) {}
+  while(a.toInt() < 1 or a.toInt() > 7){
+  a= Serial.readString();// read the incoming data as string
+  
+  
+ 
+  
+
+  switch (a.toInt()) {
+      
+    case 1: // remote 1
+      
+    // Red
+  
+   // Moving to pickup position
+    topservo.write(127);
+    delay(750);
+  
+ 
+    Serial.println("Drop the red candy and press any key when ready");
+
+    while (Serial.available()==0) {}
+   
+    
+   // Moving to scan position 
+    topservo.write(65);
+    delay(750);
+    tcs.getRawData(&red, &green, &blue, &clear);
+    Serial.print("Red: "); Serial.print(red, DEC); Serial.print(" ");
+    Serial.print("Green: "); Serial.print(green, DEC); Serial.print(" ");
+    Serial.print("Blue: "); Serial.print(blue, DEC); Serial.print(" ");
+    Serial.print("Clear: "); Serial.print(clear, DEC); Serial.print(" ");
+    Serial.println(" ");
+    delay(500);
+    redmm_redLow = red - 100;
+    redmm_redHigh = red + 100;
+    redmm_greenLow = green - 100;
+    redmm_greenHigh = green + 100;
+    redmm_blueLow = blue - 100;
+    redmm_blueHigh = blue + 100;
+
+    Serial.println("Red done");
+    
+  //  Moving to drop position and waiting before going back");
+    bottomservo.write(10);
+    delay(750);
+    topservo.write(10);
+    delay(750);
+    break;
+    
+    case 2:  // remote 2
+  
+  // Green
+  
+  Serial.println("Moving to pickup position");
+  topservo.write(127);
+  delay(750);
+  
+ // Serial.println("Calibrating");
+  Serial.println("Drop the green candy and press any button when ready");
+  
+  while (Serial.available()==0) {}
+  Serial.println("Moving to scan position (angle 82) and waiting 2 seconds");
+  topservo.write(65);
+  delay(750);
+  tcs.getRawData(&red, &green, &blue, &clear);
+  Serial.print("Red: "); Serial.print(red, DEC); Serial.print(" ");
+  Serial.print("Green: "); Serial.print(green, DEC); Serial.print(" ");
+  Serial.print("Blue: "); Serial.print(blue, DEC); Serial.print(" ");
+  Serial.print("Clear: "); Serial.print(clear, DEC); Serial.print(" ");
+  Serial.println(" ");  
+  delay(500);
+  greenmm_redLow = red - 100;
+  greenmm_redHigh = red + 100;
+  greenmm_greenLow = green - 100;
+  greenmm_greenHigh = green + 100;
+  greenmm_blueLow = blue - 100;
+  greenmm_blueHigh = blue + 100;
+  Serial.println("Green done");
+  //Moving to drop position and waiting before going back");
+   bottomservo.write(35);
+  delay(750);
+  topservo.write(10);
+  delay(750);
+  break;
+ 
+  case 3: // remote 3
+  // Blue
+  
+  //Moving to pickup position 
+  topservo.write(127);
+  delay(750);
+  
+
+  Serial.println("Drop the blue candy and press any button when ready");
+  
+   while (Serial.available()==0) {}
+  //Moving to scan position and waiting 2 seconds");
+  topservo.write(65);
+  delay(750);
+  tcs.getRawData(&red, &green, &blue, &clear);
+  Serial.print("Red: "); Serial.print(red, DEC); Serial.print(" ");
+  Serial.print("Green: "); Serial.print(green, DEC); Serial.print(" ");
+  Serial.print("Blue: "); Serial.print(blue, DEC); Serial.print(" ");
+  Serial.print("Clear: "); Serial.print(clear, DEC); Serial.print(" ");
+  Serial.println(" ");  
+  delay(500);
+  bluemm_redLow = red - 100;
+  bluemm_redHigh = red + 100;
+  bluemm_greenLow = green - 100;
+  bluemm_greenHigh = green + 100;
+  bluemm_blueLow = blue - 100;
+  bluemm_blueHigh = blue + 100;
+  Serial.println("Blue done");
+  //Moving to drop position and waiting before going back");
+  bottomservo.write(60);
+  delay(750);
+    topservo.write(10);
+    delay(750);
+  bottomservo.write(60);
+  delay(750);
+  break;
+  
+  case 4: // remote 4
+  // Orange
+  
+  //oving to pickup position
+  topservo.write(127);
+  delay(750);
+  
+
+  Serial.println("Drop the orange candy and press any button when ready");
+  
+    while (Serial.available()==0) {}
+  //Moving to scan position and waiting
+  topservo.write(65);
+  delay(750);
+  tcs.getRawData(&red, &green, &blue, &clear);
+  Serial.print("Red: "); Serial.print(red, DEC); Serial.print(" ");
+  Serial.print("Green: "); Serial.print(green, DEC); Serial.print(" ");
+  Serial.print("Blue: "); Serial.print(blue, DEC); Serial.print(" ");
+  Serial.print("Clear: "); Serial.print(clear, DEC); Serial.print(" ");
+  Serial.println(" ");  
+  delay(500);
+  orangemm_redLow = red - 100;
+  orangemm_redHigh = red + 100;
+  orangemm_greenLow = green - 100;
+  orangemm_greenHigh = green + 100;
+  orangemm_blueLow = blue - 100;
+  orangemm_blueHigh = blue + 100;
+  Serial.println("Orange done");
+  //Moving to drop positionwaiting before going back
+  bottomservo.write(80);
+  delay(750);
+  topservo.write(10);
+  delay(750);
+  break;
+  
+  
+  case 5: 
+  // Yellow
+  
+  //Moving to pickup position
+  topservo.write(127);
+  delay(750);
+  
+  //"Calibrating
+  Serial.println("Drop the yellow candy and press any button when ready");
+  
+  while (Serial.available()==0) {}
+  //Moving to scan positionand waiting
+  topservo.write(65);
+  delay(750);
+  tcs.getRawData(&red, &green, &blue, &clear);
+  Serial.print("Red: "); Serial.print(red, DEC); Serial.print(" ");
+  Serial.print("Green: "); Serial.print(green, DEC); Serial.print(" ");
+  Serial.print("Blue: "); Serial.print(blue, DEC); Serial.print(" ");
+  Serial.print("Clear: "); Serial.print(clear, DEC); Serial.print(" ");
+  Serial.println(" ");  
+  delay(500);
+  yellowmm_redLow = red - 100;
+  yellowmm_redHigh = red + 100;
+  yellowmm_greenLow = green - 100;
+  yellowmm_greenHigh = green + 100;
+  yellowmm_blueLow = blue - 100;
+  yellowmm_blueHigh = blue + 100;
+  Serial.println("Yellow done");
+  //Moving to drop positionand waiting before going back");
+  bottomservo.write(105);
+  delay(750);
+  topservo.write(10);
+  delay(750);
+  break;
+  
+  case 6: // remote 6
+  // Brown
+  
+  //Moving to pickup position
+  topservo.write(127);
+  delay(750);
+  
+  //Calibrating
+  Serial.println("Drop the brown candy and press any button when ready");
+  
+    while (Serial.available()==0) {}
+  //Moving to scan position and waiting 2 seconds
+  topservo.write(65);
+  delay(750);
+  tcs.getRawData(&red, &green, &blue, &clear);
+  Serial.print("Red: "); Serial.print(red, DEC); Serial.print(" ");
+  Serial.print("Green: "); Serial.print(green, DEC); Serial.print(" ");
+  Serial.print("Blue: "); Serial.print(blue, DEC); Serial.print(" ");
+  Serial.print("Clear: "); Serial.print(clear, DEC); Serial.print(" ");
+  Serial.println(" ");  
+  delay(500);
+  brownmm_redLow = red - 100;
+  brownmm_redHigh = red + 100;
+  brownmm_greenLow = green - 100;
+  brownmm_greenHigh = green + 100;
+  brownmm_blueLow = blue - 100;
+  brownmm_blueHigh = blue + 100;
+  Serial.println("Brown done");
+  //Moving to drop position and waiting before going back
+  bottomservo.write(128);
+  delay(750);
+  topservo.write(10);
+  delay(750);
+  break;
+  
+  }
+  }
+}
